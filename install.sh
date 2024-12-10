@@ -12,6 +12,7 @@ if [ "$answer" != "${answer#[Yy]}" ]; then
 else
 	BUILD=RELEASE
 fi
+
 echo 'Cleaning leftover files...'
 rm -rf OpenCore OpenCore-$OCVER-$BUILD.zip
 echo 'Downloading the latest release of OpenCore...'
@@ -26,6 +27,7 @@ if [ "$answer" != "${answer#[Yy]}" ]; then
 else
 	ARCH=X64
 fi
+
 OCPATH=OpenCore/$ARCH/EFI/OC
 
 echo "Removing unneeded drivers..."
@@ -47,10 +49,34 @@ if [ "$answer" != "ext4" ] && [ "$answer" != "" ]; then
 	echo "Moving filesystem driver..."
 	mv $answer\_$ARCH.efi $OCPATH/Drivers/
 	echo "Copying changes to config.plist..."
-	sed "s/<string>Ext4Dxe.efi<\/string>/<string>$answer\_$ARCH.efi<\/string>/" configs/config.plist 1> $OCPATH/config.plist
+	sed "s|<string>Ext4Dxe.efi</string>|<string>$answer\_$ARCH.efi</string>|" configs/config.plist 1> $OCPATH/config.plist
 	echo "Using $answer as filesystem"
 else
 	echo "Using ext4 as filesystem"
+fi
+
+printf '%s' "Add a picker password to OpenCore? (y/N) "
+read answer
+
+if [ "$answer" != "${answer#[Yy]}" ]; then
+	while true; do
+		stty -echo
+		printf '%s' "Enter password:"
+		read password
+		printf '\n%s' "Verify password:"
+		read answer
+		printf '\n'
+		stty echo
+		if [ "$password" = "$answer" ]; then
+			passwordFields=$(echo $password | OpenCore/Utilities/ocpasswordgen/ocpasswordgen.linux)
+			passwordHash=$(echo $passwordFields | awk -F'[<>]' '{print $2}' | xxd -r -p | base64 -w 0)
+			passwordSalt=$(echo $passwordFields | awk -F'[<>]' '{print $4}' | xxd -r -p | base64 -w 0)
+			awk -v hash="$passwordHash" '/<key>PasswordHash<\/key>/ {print; getline; print "\t\t\t<data>" hash "</data>"; next} 1' configs/config.plist | awk -v salt="$passwordSalt" '/<key>PasswordSalt<\/key>/ {print; getline; print "\t\t\t<data>" salt "</data>"; next} 1' 1> $OCPATH/config.plist
+			break
+		else
+			echo "Sorry, try again."
+		fi
+	done
 fi
 
 printf '%s' "Where should OpenCore be installed? (example: /boot/efi, /efi, your USB drive, etc.) "
