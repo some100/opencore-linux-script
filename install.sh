@@ -26,8 +26,8 @@ if [ "$answer" != "${answer#[Yy]}" ]; then
 else
 	ARCH=X64
 fi
-echo 'Moving config.plist...'
-mv configs/config.plist OpenCore/$ARCH/EFI/OC/config.plist
+echo 'Copying config.plist...'
+cp configs/config.plist OpenCore/$ARCH/EFI/OC/config.plist
 echo 'Removing unneeded drivers...'
 find OpenCore/$ARCH/EFI/OC/Drivers/* ! -name 'OpenRuntime.efi' ! -name 'OpenLinuxBoot.efi' ! -name 'OpenCanopy.efi' ! -name 'Ext4Dxe.efi' -exec rm -f {} +
 echo 'Removing unneeded tools...'
@@ -51,6 +51,6 @@ fi
 printf 'Where should OpenCore be installed? (example: /boot/efi, /efi, your USB drive, etc.) '
 read answer
 
-mv OpenCore/$ARCH/ $answer/
+cp -r OpenCore/$ARCH/EFI/* $answer/EFI/
 
 echo 'Done!'
