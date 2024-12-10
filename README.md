@@ -8,6 +8,7 @@ This script probably shouldn't be seriously used yet. I've only been able to ver
 
 ## Usage
 Run install.sh
+
 ...
 
 ## What is OpenCore?
