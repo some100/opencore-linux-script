@@ -71,7 +71,7 @@ if [ "$answer" != "${answer#[Yy]}" ]; then
 			passwordFields=$(echo $password | OpenCore/Utilities/ocpasswordgen/ocpasswordgen.linux)
 			passwordHash=$(echo $passwordFields | awk -F'[<>]' '{print $2}' | xxd -r -p | base64 -w 0)
 			passwordSalt=$(echo $passwordFields | awk -F'[<>]' '{print $4}' | xxd -r -p | base64 -w 0)
-			awk -v hash="$passwordHash" '/<key>PasswordHash<\/key>/ {print; getline; print "\t\t\t<data>" hash "</data>"; next} 1' configs/config.plist | awk -v salt="$passwordSalt" '/<key>PasswordSalt<\/key>/ {print; getline; print "\t\t\t<data>" salt "</data>"; next} 1' 1> $OCPATH/config.plist
+			awk -v hash="$passwordHash" '/<key>PasswordHash<\/key>/ {print; getline; print "\t\t\t<data>" hash "</data>"; next} 1' configs/config.plist | awk -v salt="$passwordSalt" '/<key>PasswordSalt<\/key>/ {print; getline; print "\t\t\t<data>" salt "</data>"; next} 1' | awk '/<key>EnablePassword<\/key>/ {print; getline; print "\t\t\t<true/>"; next} 1' 1> $OCPATH/config.plist
 			break
 		else
 			echo "Sorry, try again."
