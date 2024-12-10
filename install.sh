@@ -46,6 +46,8 @@ if [ "$answer" != "ext4" ]; then
 	}
 	echo 'Moving filesystem driver...'
 	mv $answer\_$ARCH.efi OpenCore/$ARCH/EFI/OC/Drivers/
+	echo 'Copying changes to config.plist...'
+	sed -i 's/<string>Ext4Dxe.efi<\/string>/<string>$answer<\/string>/' OpenCore/$ARCH/EFI/OC/config.plist
 fi
 
 printf 'Where should OpenCore be installed? (example: /boot/efi, /efi, your USB drive, etc.) '
