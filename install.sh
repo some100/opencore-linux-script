@@ -73,6 +73,10 @@ printf '%s' 'Vault configuration? (Prevents changes from being made to configura
 read answer
 
 if [ "$answer" != "${answer#[Yy]}" ]; then
+	echo 'Requiring secure vault in config.plist'
+	mv $OCPATH/config.plist $OCPATH/temp.plist
+	awk '/<key>Vault<\/key>/ {print; getline; print "\t\t\t<string>Secure</string>"; next} 1' $OCPATH/temp.plist 1> $OCPATH/config.plist
+	rm $OCPATH/temp.plist
 	echo 'Downloading OpenCore Source...'
 	wget -q https://github.com/acidanthera/OpenCorePkg/archive/refs/tags/$OCVER.zip
 	unzip -qq $OCVER.zip
@@ -84,7 +88,7 @@ if [ "$answer" != "${answer#[Yy]}" ]; then
 	cp OpenCorePkg/Utilities/RsaTool/RsaTool OpenCore/Utilities/CreateVault
 	rm -rf OpenCorePkg
 	echo 'Vaulting OpenCore...'
-	OpenCore/Utilities/CreateVault/sign.command $(pwd -P)/$OCPATH
+	OpenCore/Utilities/CreateVault/sign.command "$(pwd -P)"/$OCPATH
 fi
 
 printf '%s' "Where should OpenCore be installed? (example: /boot/efi, /efi, your USB drive, etc.) "
@@ -97,6 +101,6 @@ elif [ ! -d "$answer" ]; then
 	exit
 fi
 
-cp -r OpenCore/$ARCH/* $answer/ || echo 'Failed to copy OpenCore to selected directory!'; exit
+cp -r OpenCore/$ARCH/* $answer/ || echo 'Failed to copy OpenCore to selected directory!'
 
-echo 'Done! Please reboot your machine.'
+echo 'Done!'
