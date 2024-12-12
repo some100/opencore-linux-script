@@ -59,24 +59,11 @@ printf '%s' "Add a picker password to OpenCore? (y/N) "
 read answer
 
 if [ "$answer" != "${answer#[Yy]}" ]; then
-	while true; do
-		stty -echo
-		printf '%s' "Enter password:"
-		read password
-		printf '\n%s' "Verify password:"
-		read answer
-		printf '\n'
-		stty echo
-		if [ "$password" = "$answer" ]; then
-			passwordFields=$(echo $password | OpenCore/Utilities/ocpasswordgen/ocpasswordgen.linux)
-			passwordHash=$(echo $passwordFields | awk -F'[<>]' '{print $2}' | xxd -r -p | base64 -w 0)
-			passwordSalt=$(echo $passwordFields | awk -F'[<>]' '{print $4}' | xxd -r -p | base64 -w 0)
-			awk -v hash="$passwordHash" '/<key>PasswordHash<\/key>/ {print; getline; print "\t\t\t<data>" hash "</data>"; next} 1' configs/config.plist | awk -v salt="$passwordSalt" '/<key>PasswordSalt<\/key>/ {print; getline; print "\t\t\t<data>" salt "</data>"; next} 1' | awk '/<key>EnablePassword<\/key>/ {print; getline; print "\t\t\t<true/>"; next} 1' 1> $OCPATH/config.plist
-			break
-		else
-			echo "Sorry, try again."
-		fi
-	done
+	printf '%s\n' "Enter password:"
+	passwordFields=$(OpenCore/Utilities/ocpasswordgen/ocpasswordgen.linux)
+	passwordHash=$(echo $passwordFields | awk -F'[<>]' '{print $2}' | xxd -r -p | base64 -w 0)
+	passwordSalt=$(echo $passwordFields | awk -F'[<>]' '{print $4}' | xxd -r -p | base64 -w 0)
+	awk -v hash="$passwordHash" '/<key>PasswordHash<\/key>/ {print; getline; print "\t\t\t<data>" hash "</data>"; next} 1' configs/config.plist | awk -v salt="$passwordSalt" '/<key>PasswordSalt<\/key>/ {print; getline; print "\t\t\t<data>" salt "</data>"; next} 1' | awk '/<key>EnablePassword<\/key>/ {print; getline; print "\t\t\t<true/>"; next} 1' 1> $OCPATH/config.plist
 fi
 
 printf '%s' "Where should OpenCore be installed? (example: /boot/efi, /efi, your USB drive, etc.) "
