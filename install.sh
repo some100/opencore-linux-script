@@ -4,7 +4,7 @@ OCVER=$(curl --silent -qI https://github.com/acidanthera/OpenCorePkg/releases/la
 
 echo "Welcome!"
 echo "This script will create an EFI for OpenCore that can be used exclusively for Linux and Windows booting. It cannot be used for hackintoshing or booting macOS. For that purpose, the official install guide at https://dortania.github.io/OpenCore-Install-Guide/ should be used instead."
-printf '%s' "Use DEBUG version of OpenCore? (y/N) "
+printf '%s' "Use DEBUG version of OpenCore? (Disable GUI, log to file and screen, dump ACPI and system info to partition) (y/N) "
 read answer
 
 if [ "$answer" != "${answer#[Yy]}" ]; then
@@ -49,9 +49,10 @@ if [ "$answer" != "ext4" ] && [ "$answer" != "" ]; then
 	echo "Moving filesystem driver..."
 	mv $answer\_$ARCH.efi $OCPATH/Drivers/
 	echo "Copying changes to config.plist..."
-	sed "s|<string>Ext4Dxe.efi</string>|<string>$answer\_$ARCH.efi</string>|" configs/config.plist 1> $OCPATH/config.plist
+	sed "s|<string>Ext4Dxe.efi</string>|<string>$answer\_$ARCH.efi</string>|" configs/config$BUILD.plist 1> $OCPATH/config.plist
 	echo "Using $answer as filesystem"
 else
+	cp configs/config$BUILD.plist $OCPATH/config.plist
 	echo "Using ext4 as filesystem"
 fi
 
@@ -59,11 +60,13 @@ printf '%s' "Add a picker password to OpenCore? (y/N) "
 read answer
 
 if [ "$answer" != "${answer#[Yy]}" ]; then
+	mv $OCPATH/config.plist $OCPATH/temp.plist
 	printf '%s\n' "Enter password:"
 	passwordFields=$(OpenCore/Utilities/ocpasswordgen/ocpasswordgen.linux)
 	passwordHash=$(echo $passwordFields | awk -F'[<>]' '{print $2}' | xxd -r -p | base64 -w 0)
 	passwordSalt=$(echo $passwordFields | awk -F'[<>]' '{print $4}' | xxd -r -p | base64 -w 0)
-	awk -v hash="$passwordHash" '/<key>PasswordHash<\/key>/ {print; getline; print "\t\t\t<data>" hash "</data>"; next} 1' configs/config.plist | awk -v salt="$passwordSalt" '/<key>PasswordSalt<\/key>/ {print; getline; print "\t\t\t<data>" salt "</data>"; next} 1' | awk '/<key>EnablePassword<\/key>/ {print; getline; print "\t\t\t<true/>"; next} 1' 1> $OCPATH/config.plist
+	awk -v hash="$passwordHash" '/<key>PasswordHash<\/key>/ {print; getline; print "\t\t\t<data>" hash "</data>"; next} 1' $OCPATH/temp.plist | awk -v salt="$passwordSalt" '/<key>PasswordSalt<\/key>/ {print; getline; print "\t\t\t<data>" salt "</data>"; next} 1' | awk '/<key>EnablePassword<\/key>/ {print; getline; print "\t\t\t<true/>"; next} 1' 1> $OCPATH/config.plist
+	rm $OCPATH/temp.plist
 fi
 
 printf '%s' "Where should OpenCore be installed? (example: /boot/efi, /efi, your USB drive, etc.) "
