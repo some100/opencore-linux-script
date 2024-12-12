@@ -69,6 +69,24 @@ if [ "$answer" != "${answer#[Yy]}" ]; then
 	rm $OCPATH/temp.plist
 fi
 
+printf '%s' 'Vault configuration? (Prevents changes from being made to configuration) (y/N) '
+read answer
+
+if [ "$answer" != "${answer#[Yy]}" ]; then
+	echo 'Downloading OpenCore Source...'
+	wget -q https://github.com/acidanthera/OpenCorePkg/archive/refs/tags/$OCVER.zip
+	unzip -qq $OCVER.zip
+	mv OpenCorePkg-$OCVER OpenCorePkg
+	rm $OCVER.zip
+	echo 'Compiling RsaTool...'
+	cd OpenCorePkg/Utilities/RsaTool && make && cd ../../../
+	echo 'Copying RsaTool to OpenCore...'
+	cp OpenCorePkg/Utilities/RsaTool/RsaTool OpenCore/Utilities/CreateVault
+	rm -rf OpenCorePkg
+	echo 'Vaulting OpenCore...'
+	OpenCore/Utilities/CreateVault/sign.command $(pwd -P)/$OCPATH
+fi
+
 printf '%s' "Where should OpenCore be installed? (example: /boot/efi, /efi, your USB drive, etc.) "
 read answer
 if [ "$answer" = "" ]; then
