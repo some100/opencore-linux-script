@@ -7,7 +7,11 @@ This script probably shouldn't be seriously used yet. I've only been able to ver
 **THIS WILL NOT PRODUCE A USABLE EFI FOR MACOS!** For hackintoshing, use the excellent [OpenCore Install Guide](https://dortania.github.io/OpenCore-Install-Guide/) instead of this tool.
 
 ## Usage
-Run install.sh. Optionally, if you want to use a picker password, install xxd and base64. If you want to vault your configuration, install build tools (gcc, make, etc), uuidgen, and OpenSSL (including development libraries).
+Run install.sh. 
+* Optionally, if you want to use a picker password, install xxd and base64. 
+* If you want to vault your configuration, install build tools (gcc, make, etc), uuidgen, and OpenSSL (including development libraries). 
+* If you want to automate generation of Secure Boot keys, install efitools, sbsigntools, OpenSSL. 
+  * If you're using Shim with Secure Boot, install libelf development libraries, build tools, and python3. Install the "pefile" library to Python as well
 
 ## What is OpenCore?
 OpenCore is a boot manager that was mainly created for the purposes of hackintoshing, or installing macOS on non-Apple hardware. However, it can also boot other operating systems such as Linux and Windows. This script creates a configuration that, while useless for hackintoshing, is enough for booting Linux.
