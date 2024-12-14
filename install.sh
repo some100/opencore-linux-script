@@ -88,9 +88,9 @@ answer=$(echo "$answer" | awk '{print tolower($0)}')
 if [ "$answer" != "ext4" ] && [ "$answer" != "" ]; then
 	echo 'Getting filesystem driver...'
 	rm "$OCPATH/Drivers/Ext4Dxe.efi"
-	wget -qO "$OCPATH/Drivers/$answer\_$ARCH.efi" https://github.com/pbatard/EfiFs/releases/latest/download/$answer\_$ARCH.efi || exit_on_error "Failed to get filesystem driver! Maybe it is not supported yet."
+	wget -qO "$OCPATH/Drivers/${answer}_${ARCH}.efi" "https://github.com/pbatard/EfiFs/releases/latest/download/${answer}_${ARCH}.efi" || exit_on_error "Failed to get filesystem driver! Maybe it is not supported yet."
 	echo "Copying changes to config.plist..."
-	sed "s|<string>Ext4Dxe.efi</string>|<string>$answer\_$ARCH.efi</string>|" "$SCRIPTDIR/configs/config$BUILD.plist" > $OCPATH/config.plist
+	sed "s|<string>Ext4Dxe.efi</string>|<string>${answer}_${ARCH}.efi</string>|" "$SCRIPTDIR/configs/config$BUILD.plist" > $OCPATH/config.plist
 	echo "Using $answer as filesystem"
 else
 	cp "$SCRIPTDIR/configs/config$BUILD.plist" "$OCPATH/config.plist"
