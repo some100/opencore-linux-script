@@ -187,7 +187,7 @@ if [ "$answer" != "${answer#[Yy]}" ]; then
 		./shim-make.tool -r $SCRIPTDIR/OpenCore/shim_root -s $SCRIPTDIR/OpenCore/shim_source install $OCPATH/../.. > /dev/null 2>&1 || echo 'Failed to install Shim to OpenCore EFI!'
 		echo 'Adding changes to config.plist'
 		find_replace_config "ShimRetainProtocol" "<true/>"
-		find_replace_config "LauncherPath" "\EFI\OC\shimx64.efi"
+		find_replace_config "LauncherPath" '<string>\\EFI\\OC\\shimx64.efi</string>'
 		echo 'Adding empty SBAT section to config.plist'
 		wget -q https://raw.githubusercontent.com/chenxiaolong/random-scripts/e752bf07bcfb0aa19a9d7dafa139cca74ecca4b7/pe-add-sections.py && chmod +x pe-add-sections.py
 		./pe-add-sections.py -s .sbat /dev/null -z .sbat -i $OCPATH/OpenCore.efi -o $OCPATH/OpenCore.efi
