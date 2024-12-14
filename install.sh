@@ -79,8 +79,15 @@ echo "Removing unneeded drivers..."
 find "$OCPATH"/Drivers/* ! -name 'OpenRuntime.efi' ! -name 'OpenLinuxBoot.efi' ! -name 'OpenCanopy.efi' ! -name 'Ext4Dxe.efi' -exec rm -f {} +
 echo "Removing unneeded tools..."
 rm -f "$OCPATH"/Tools/*
+
 echo "Setting up a theme for OpenCanopy"
+
+if [ ! -d "$SCRIPTDIR/OcBinaryData/Resources/" ]; then
+	git submodule update --init
+fi
+
 cp -r "$SCRIPTDIR/OcBinaryData/Resources/" "$OCPATH/"
+
 printf '%s' "What filesystem is your /boot partition on? (ext4, btrfs, etc.): "
 read answer
 answer=$(echo "$answer" | awk '{print tolower($0)}')
