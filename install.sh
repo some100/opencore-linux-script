@@ -1,7 +1,7 @@
 #!/bin/sh
 
 exit_on_error() {
-	echo "$1"
+	echo "$1" >&2
 	exit
 }
 sign_file() {
@@ -20,6 +20,15 @@ find_replace_config() {
 	mv $OCPATH/config.plist $OCPATH/temp.plist
 	awk -v findkey="$1" -v replacevalue="$2" '$0 ~ "<key>" findkey "<\/key>" {print; getline; print "\t\t\t" replacevalue; next} 1' "$OCPATH/temp.plist" > "$OCPATH/config.plist" 2> /dev/null || exit_on_error "Failed to replace value $2 at key $1"
 	rm $OCPATH/temp.plist
+}
+ask_question() {
+	printf '%s' "$1"
+	read answer
+}
+download_unzip_to_dir() {
+	curl -Lso "$SCRIPTDIR/$2.zip" "$1" || exit_on_error "Failed to download $2"
+	unzip -qq "$SCRIPTDIR/$2.zip" -d "$SCRIPTDIR/$2" || exit_on_error "Failed to unzip $2"
+	rm "$SCRIPTDIR/$2.zip"
 }
 
 if [ ! -x /usr/bin/xxd ] || [ ! -x /usr/bin/base64 ]; then
@@ -47,8 +56,7 @@ SCRIPTDIR="$(pwd -P)"
 
 echo "Welcome!"
 echo "This script will create an EFI for OpenCore that can be used exclusively for Linux and Windows booting. It cannot be used for hackintoshing or booting macOS. For that purpose, the official install guide at https://dortania.github.io/OpenCore-Install-Guide/ should be used instead."
-printf '%s' "Use DEBUG version of OpenCore? (Disable GUI, log to file and screen, dump ACPI and system info to partition) (y/N) "
-read answer
+ask_question "Use DEBUG version of OpenCore? (Disable GUI, log to file and screen, dump ACPI and system info to partition) (y/N) "
 
 if [ "$answer" != "${answer#[Yy]}" ]; then
 	BUILD=DEBUG
@@ -60,11 +68,8 @@ echo 'Cleaning leftover files...'
 rm -rf "$SCRIPTDIR/OpenCore"
 echo 'Downloading the latest release of OpenCore...'
 mkdir "$SCRIPTDIR/OpenCore"
-curl -Lso OpenCore.zip https://github.com/acidanthera/OpenCorePkg/releases/download/$OCVER/OpenCore-$OCVER-$BUILD.zip || exit_on_error "Failed to download OpenCore!"
-unzip -qq OpenCore.zip -d "$SCRIPTDIR/OpenCore" || exit_on_error "Failed to unzip OpenCore!"
-rm OpenCore.zip
-printf '%s' "Is your EFI architecture IA32, or 32 bit? (If in doubt, select no) (y/N) "
-read answer
+download_unzip_to_dir "https://github.com/acidanthera/OpenCorePkg/releases/download/$OCVER/OpenCore-$OCVER-$BUILD.zip" "OpenCore"
+ask_question "Is your EFI architecture IA32, or 32 bit? (If in doubt, select no) (y/N) "
 
 if [ "$answer" != "${answer#[Yy]}" ]; then
 	ARCH=IA32
@@ -88,16 +93,15 @@ fi
 
 cp -r "$SCRIPTDIR/OcBinaryData/Resources/" "$OCPATH/"
 
-printf '%s' "What filesystem is your /boot partition on? (ext4, btrfs, etc.): "
-read answer
+ask_question "What filesystem is your /boot partition on? (ext4, btrfs, etc.): "
 answer=$(echo "$answer" | awk '{print tolower($0)}')
 
 if [ "$answer" != "ext4" ] && [ "$answer" != "" ]; then
 	echo 'Getting filesystem driver...'
 	rm "$OCPATH/Drivers/Ext4Dxe.efi"
-	wget -qO "$OCPATH/Drivers/${answer}_${ARCH}.efi" "https://github.com/pbatard/EfiFs/releases/latest/download/${answer}_${ARCH}.efi" || exit_on_error "Failed to get filesystem driver! Maybe it is not supported yet."
+	wget -qO "$OCPATH/Drivers/${answer}_${ARCH}.efi" "https://github.com/pbatard/EfiFs/releases/latest/download/${answer}_${ARCH}.efi" || exit_on_error "Failed to get filesystem driver!"
 	echo "Copying changes to config.plist..."
-	sed "s|<string>Ext4Dxe.efi</string>|<string>${answer}_${ARCH}.efi</string>|" "$SCRIPTDIR/configs/config$BUILD.plist" > $OCPATH/config.plist
+	sed "s|<string>Ext4Dxe.efi</string>|<string>${answer}_${ARCH}.efi</string>|" "$SCRIPTDIR/configs/config$BUILD.plist" > $OCPATH/config.plist || exit_on_error "Failed to copy filesystem changes to config.plist!"
 	echo "Using $answer as filesystem"
 else
 	cp "$SCRIPTDIR/configs/config$BUILD.plist" "$OCPATH/config.plist"
@@ -105,30 +109,27 @@ else
 fi
 
 if [ -z "$NO_PASSWORD" ]; then
-	printf '%s' "Add a picker password to OpenCore? (y/N) "
-	read answer
+	ask_question "Add a picker password to OpenCore? (y/N) "
 
 	if [ "$answer" != "${answer#[Yy]}" ]; then
 		printf '%s\n' "Enter password:"
-		passwordFields=$($OCUTILS/ocpasswordgen/ocpasswordgen.linux) || exit_on_error "Password generation failed!"
-		passwordHash=$(echo $passwordFields | awk -F'[<>]' '{print $2}' | xxd -r -p | base64 -w 0)
-		passwordSalt=$(echo $passwordFields | awk -F'[<>]' '{print $4}' | xxd -r -p | base64 -w 0)
-		find_replace_config "PasswordHash" "<data>$passwordHash</data>"
-		find_replace_config "PasswordSalt" "<data>$passwordSalt</data>"
+		password=$($OCUTILS/ocpasswordgen/ocpasswordgen.linux) || exit_on_error "Password generation failed!"
+		password_hash=$(echo $password | awk -F'[<>]' '{print $2}' | xxd -r -p | base64 -w 0)
+		password_salt=$(echo $password | awk -F'[<>]' '{print $4}' | xxd -r -p | base64 -w 0)
+		find_replace_config "PasswordHash" "<data>$password_hash</data>"
+		find_replace_config "PasswordSalt" "<data>$password_salt</data>"
 		find_replace_config "EnablePassword" "<true/>"
 	fi
 fi
 
 if [ -z "$NO_SB" ]; then
-	printf '%s' "Set up UEFI Secure Boot? (y/N) "
-	read answer
+	ask_question "Set up UEFI Secure Boot? (y/N) "
 
 	if [ "$answer" != "${answer#[Yy]}" ]; then
 		KEYS="$SCRIPTDIR/Keys"
 
 		if [ -d "$KEYS" ]; then
-			printf '%s' "Found existing keys! Do you want to delete them? (y/N) "
-			read answer
+			ask_question "Found existing keys! Do you want to delete them? (y/N) "
 
 			if [ "$answer" != "${answer#[Yy]}" ]; then
 				rm -rf $KEYS
@@ -163,8 +164,7 @@ if [ -z "$NO_SB" ]; then
 			cert-to-efi-sig-list -g "$(uuidgen)" PK.pem PK.esl
 			cert-to-efi-sig-list -g "$(uuidgen)" KEK.pem KEK.esl
 			cert-to-efi-sig-list -g "$(uuidgen)" ISK.pem ISK.esl
-			printf '%s' "Exclude Microsoft's keys? (Don't select yes unless you are certain you won't block option ROMs, like video BIOS!) (y/N) "
-			read answer
+			ask_question "Exclude Microsoft's keys? (Don't select yes unless you are certain you won't block option ROMs, like video BIOS!) (y/N) "
 
 			if [ "$answer" != "${answer#[Yy]}" ]; then
 				echo "Adding ISK to DB"
@@ -192,24 +192,22 @@ if [ -z "$NO_SB" ]; then
 		fi
 
 		if [ -z "$NO_SHIM" ]; then
-			printf '%s' "Chainload OpenCore using Shim? (Highly recommended if your distro uses shim) (y/N) "
-			read answer
+			ask_question "Chainload OpenCore using Shim? (Highly recommended if your distro uses shim) (y/N) "
 
 			if [ "$answer" != "${answer#[Yy]}" ]; then
 				cd "$OCUTILS/ShimUtils"
 				USINGSHIM=1
 
-				printf '%s' "Where is your distribution's shimx64.efi located? (should be somewhere like /boot/efi/efi/ubuntu/shimx64.efi) "
-				read answer
+				ask_question "Where is your distribution's shimx64.efi located? (should be somewhere like /boot/efi/efi/ubuntu/shimx64.efi) "
 				./shim-to-cert.tool "$answer" || exit_on_error "Failed to extract certificates from Shim!"
 
 				# Remove the redirections to /dev/null to unsuppress debug output
 				echo 'Setting up build environment'
-				./shim-make.tool -r $SCRIPTDIR/OpenCore/shim_root -s $SCRIPTDIR/OpenCore/shim_source setup > /dev/null 2>&1 || exit_on_error "Failed to setup build environment!"
+				./shim-make.tool -r $OCUTILS/shim_root -s $OCUTILS/shim_source setup > /dev/null 2>&1 || exit_on_error "Failed to setup build environment!"
 				echo 'Building Shim'
-				./shim-make.tool -r $SCRIPTDIR/OpenCore/shim_root -s $SCRIPTDIR/OpenCore/shim_source make VENDOR_DB_FILE=$OCUTILS/ShimUtils/vendor.db > /dev/null 2>&1 || exit_on_error "Failed to build Shim! Did you install libelf development libraries?"
+				./shim-make.tool -r $OCUTILS/shim_root -s $OCUTILS/shim_source make VENDOR_DB_FILE=$OCUTILS/ShimUtils/vendor.db > /dev/null 2>&1 || exit_on_error "Failed to build Shim! Did you install libelf development libraries?"
 				echo 'Installing Shim to OpenCore'
-				./shim-make.tool -r $SCRIPTDIR/OpenCore/shim_root -s $SCRIPTDIR/OpenCore/shim_source install "$OCPATH/../.." > /dev/null 2>&1 || exit_on_error "Failed to install Shim to OpenCore EFI!"
+				./shim-make.tool -r $OCUTILS/shim_root -s $OCUTILS/shim_source install "$OCPATH/../.." > /dev/null 2>&1 || exit_on_error "Failed to install Shim to OpenCore EFI!"
 				echo 'Adding changes to config.plist'
 				find_replace_config "ShimRetainProtocol" "<true/>"
 				find_replace_config "LauncherPath" '<string>\\EFI\\OC\\shimx64.efi</string>'
@@ -235,8 +233,7 @@ if [ -z "$NO_SB" ]; then
 		fi
 
 		if [ -z "$NO_VAULT" ]; then
-			printf '%s' "Do you plan to Vault your configuration? (Prevent further changes) (y/N) "
-			read answer
+			ask_question "Do you plan to Vault your configuration? (Prevent further changes) (y/N) "
 
 			if [ "$answer" != "${answer#[Yy]}" ]; then
 				VAULTSB=1
@@ -252,8 +249,7 @@ if [ -z "$NO_SB" ]; then
 	fi
 fi
 
-printf '%s' 'Create persistent boot option for OpenCore? (Required if using Shim. Only recommended if permanently installing to EFI) (y/N) '
-read answer
+ask_question "Create persistent boot option for OpenCore? (Required if using Shim. Only recommended if permanently installing to EFI) (y/N) "
 
 if [ "$answer" != "${answer#[Yy]}" ]; then
 	echo 'Enabling LauncherOption in config.plist'
@@ -262,22 +258,19 @@ fi
 
 if [ -z "$NO_VAULT" ]; then
 	if [ -z "$VAULTSB" ]; then
-		printf '%s' 'Vault configuration? (Prevents changes from being made to configuration) (y/N) '
-		read answer
+		ask_question "Vault configuration? (Prevents changes from being made to configuration) (y/N) "
 	fi
 
 	if [ "$answer" != "${answer#[Yy]}" ] || [ "$VAULTSB" = 1 ]; then
 		echo 'Requiring secure vault in config.plist'
 		find_replace_config "Vault" "<string>Secure</string>"
 		echo 'Downloading OpenCore Source...'
-		curl -Lso OpenCore.zip https://github.com/acidanthera/OpenCorePkg/archive/refs/tags/$OCVER.zip
-		unzip -qq OpenCore.zip
-		mv OpenCorePkg-$OCVER OpenCorePkg
-		rm OpenCore.zip
+		download_unzip_to_dir "https://github.com/acidanthera/OpenCorePkg/archive/refs/tags/$OCVER.zip" "OpenCorePkg"
+		mv "$SCRIPTDIR/OpenCorePkg/OpenCorePkg-$OCVER"/* "$SCRIPTDIR/OpenCorePkg"
 		echo 'Compiling RsaTool...'
-		cd OpenCorePkg/Utilities/RsaTool && make && cd ../../../
+		cd "$SCRIPTDIR/OpenCorePkg/Utilities/RsaTool" && make && cd $SCRIPTDIR
 		echo 'Copying RsaTool to OpenCore...'
-		cp OpenCorePkg/Utilities/RsaTool/RsaTool "$OCUTILS/CreateVault"
+		cp "$SCRIPTDIR/OpenCorePkg/Utilities/RsaTool/RsaTool" "$OCUTILS/CreateVault"
 		rm -rf OpenCorePkg
 		echo 'Vaulting OpenCore...'
 		"$OCUTILS/CreateVault/sign.command" "$OCPATH"
@@ -288,16 +281,14 @@ if [ -z "$NO_VAULT" ]; then
 	fi
 fi
 
-printf '%s' "Where should OpenCore be installed? (example: /boot/efi, /efi, your USB drive, etc.) "
-read answer
+ask_question "Where should OpenCore be installed? (example: /boot/efi, /efi, your USB drive, etc.) "
+
 if [ "$answer" = "" ]; then
-	echo 'No directory specified!'
-	exit
+	exit_on_error "No directory specified!"
 elif [ ! -d "$answer" ]; then
-	echo 'Directory does not exist!'
-	exit
+	exit_on_error "Directory does not exist!"
 fi
 
-cp -r OpenCore/$ARCH/* $answer/ || exit_on_error "Failed to copy OpenCore to selected directory!"
+cp -r $SCRIPTDIR/OpenCore/$ARCH/* $answer/ || exit_on_error "Failed to copy OpenCore to selected directory!"
 
 echo 'Done!'
