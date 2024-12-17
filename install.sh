@@ -8,18 +8,23 @@ sign_file() {
 	file="$1"
 	echo "Signing $file (enter your passphrase)"
 	while true; do
-		sbsign --key $KEYS/ISK.key --cert $KEYS/ISK.pem $file --output $file 2> /dev/null
+		sbsign --key "$KEYS/ISK.key" --cert "$KEYS/ISK.pem" "$file" --output "$file" 2> /dev/null
 		if [ "$?" != 0 ]; then
-			echo 'Sorry, try again'
+			echo "Sorry, try again"
 		else
 			break
 		fi
 	done
 }
 find_replace_config() {
-	mv $OCPATH/config.plist $OCPATH/temp.plist
+	mv "$OCPATH/config.plist" "$OCPATH/temp.plist"
 	awk -v findkey="$1" -v replacevalue="$2" '$0 ~ "<key>" findkey "<\/key>" {print; getline; print "\t\t\t" replacevalue; next} 1' "$OCPATH/temp.plist" > "$OCPATH/config.plist" 2> /dev/null || exit_on_error "Failed to replace value $2 at key $1"
-	rm $OCPATH/temp.plist
+	rm "$OCPATH/temp.plist"
+}
+find_replace() {
+	mv "$3" "$3temp"
+	sed "s|$1|$2|" "$3temp" > "$3" || exit_on_error "Failed to replace value $1 with $2 in $3!"
+	rm "$3temp"
 }
 ask_question() {
 	printf '%s' "$1"
@@ -64,9 +69,9 @@ else
 	BUILD=RELEASE
 fi
 
-echo 'Cleaning leftover files...'
+echo "Cleaning leftover files..."
 rm -rf "$SCRIPTDIR/OpenCore"
-echo 'Downloading the latest release of OpenCore...'
+echo "Downloading the latest release of OpenCore..."
 mkdir "$SCRIPTDIR/OpenCore"
 download_unzip_to_dir "https://github.com/acidanthera/OpenCorePkg/releases/download/$OCVER/OpenCore-$OCVER-$BUILD.zip" "OpenCore"
 ask_question "Is your EFI architecture IA32, or 32 bit? (If in doubt, select no) (y/N) "
@@ -93,27 +98,33 @@ fi
 
 cp -r "$SCRIPTDIR/OcBinaryData/Resources/" "$OCPATH/"
 
-ask_question "What filesystem is your /boot partition on? (ext4, btrfs, etc.): "
+ask_question "What filesystem is your /boot partition on? (ext4, btrfs, fat32, etc.): "
 answer=$(echo "$answer" | awk '{print tolower($0)}')
 
-if [ "$answer" != "ext4" ] && [ "$answer" != "" ]; then
-	echo 'Getting filesystem driver...'
-	rm "$OCPATH/Drivers/Ext4Dxe.efi"
-	wget -qO "$OCPATH/Drivers/${answer}_${ARCH}.efi" "https://github.com/pbatard/EfiFs/releases/latest/download/${answer}_${ARCH}.efi" || exit_on_error "Failed to get filesystem driver!"
-	echo "Copying changes to config.plist..."
-	sed "s|<string>Ext4Dxe.efi</string>|<string>${answer}_${ARCH}.efi</string>|" "$SCRIPTDIR/configs/config$BUILD.plist" > $OCPATH/config.plist || exit_on_error "Failed to copy filesystem changes to config.plist!"
-	echo "Using $answer as filesystem"
-else
-	cp "$SCRIPTDIR/configs/config$BUILD.plist" "$OCPATH/config.plist"
-	echo "Using ext4 as filesystem"
-fi
+cp "$SCRIPTDIR/configs/config$BUILD.plist" "$OCPATH/config.plist"
+case "$answer" in
+	"ext4")
+		;;
+	fat*)
+		;;
+	"")
+		answer=ext4
+		;;
+	*)
+		echo "Getting filesystem driver"
+		rm "$OCPATH/Drivers/Ext4Dxe.efi"
+		curl -Lso "$OCPATH/Drivers/${answer}_${ARCH}.efi" "https://github.com/pbatard/EfiFs/releases/latest/download/${answer}_${ARCH}.efi" || exit_on_error "Failed to get filesystem driver!"
+		echo "Copying changes to config.plist"
+		find_replace "Ext4Dxe.efi" "${answer}_${ARCH}.efi" "$OCPATH/config.plist"
+esac
+echo "Using $answer as filesystem"
 
 if [ -z "$NO_PASSWORD" ]; then
 	ask_question "Add a picker password to OpenCore? (y/N) "
 
 	if [ "$answer" != "${answer#[Yy]}" ]; then
 		printf '%s\n' "Enter password:"
-		password=$($OCUTILS/ocpasswordgen/ocpasswordgen.linux) || exit_on_error "Password generation failed!"
+		password=$("$OCUTILS/ocpasswordgen/ocpasswordgen.linux") || exit_on_error "Password generation failed!"
 		password_hash=$(echo $password | awk -F'[<>]' '{print $2}' | xxd -r -p | base64 -w 0)
 		password_salt=$(echo $password | awk -F'[<>]' '{print $4}' | xxd -r -p | base64 -w 0)
 		find_replace_config "PasswordHash" "<data>$password_hash</data>"
@@ -132,13 +143,13 @@ if [ -z "$NO_SB" ]; then
 			ask_question "Found existing keys! Do you want to delete them? (y/N) "
 
 			if [ "$answer" != "${answer#[Yy]}" ]; then
-				rm -rf $KEYS
+				rm -rf "$KEYS"
 			else
 				REUSEKEYS=1
 			fi
 		fi
 		if [ "$REUSEKEYS" != 1 ]; then
-			mkdir $KEYS
+			mkdir "$KEYS"
 			stty -echo
 			while true; do
 				printf '%s' "Please enter your passphrase for your Secure Boot Keys: "
@@ -146,21 +157,29 @@ if [ -z "$NO_SB" ]; then
 				printf '\n%s' "Verify passphrase: "
 				read answer
 				if [ "$answer" != "$passphrase" ]; then
-					echo 'Sorry, try again.'
+					echo "Sorry, try again."
 				else
 					printf '\n'
 					stty echo
 					break
 				fi
 			done
-			echo 'Generating Platform Key'
-			openssl req -new -x509 -newkey rsa:2048 -sha256 -days 365 -subj "/CN=Platform Key" -keyout $KEYS/PK.key -out $KEYS/PK.pem -passout pass:$passphrase -batch 2> /dev/null || exit_on_error "Couldn't generate Platform Key!"
-			echo 'Generating Key Exchange Key'
-			openssl req -new -x509 -newkey rsa:2048 -sha256 -days 365 -subj "/CN=Key Exchange Key" -keyout $KEYS/KEK.key -out $KEYS/KEK.pem -passout pass:$passphrase -batch 2> /dev/null || exit_on_error "Couldn't generate Key Exchange Key!"
-			echo 'Generating Image Signing Key'
-			openssl req -new -x509 -newkey rsa:2048 -sha256 -days 365 -subj "/CN=Image Signing Key" -keyout $KEYS/ISK.key -out $KEYS/ISK.pem -passout pass:$passphrase -batch 2> /dev/null || exit_on_error "Couldn't generate Image Signing Key!"
-			echo 'Converting PEMs to ESL format'
-			cd $KEYS
+			printf '%s' "How many days should the keys be valid? "
+			read expiry
+
+			if [ -z "$expiry" ]; then
+				echo "No expiry provided, defaulting to 1 year"
+				expiry=365
+			fi
+
+			echo "Generating Platform Key"
+			openssl req -new -x509 -newkey rsa:2048 -sha256 -days $expiry -subj "/CN=Platform Key" -keyout "$KEYS/PK.key" -out "$KEYS/PK.pem" -passout pass:"$passphrase" -batch 2> /dev/null || exit_on_error "Couldn't generate Platform Key!"
+			echo "Generating Key Exchange Key"
+			openssl req -new -x509 -newkey rsa:2048 -sha256 -days $expiry -subj "/CN=Key Exchange Key" -keyout "$KEYS/KEK.key" -out "$KEYS/KEK.pem" -passout pass:"$passphrase" -batch 2> /dev/null || exit_on_error "Couldn't generate Key Exchange Key!"
+			echo "Generating Image Signing Key"
+			openssl req -new -x509 -newkey rsa:2048 -sha256 -days $expiry -subj "/CN=Image Signing Key" -keyout "$KEYS/ISK.key" -out "$KEYS/ISK.pem" -passout pass:"$passphrase" -batch 2> /dev/null || exit_on_error "Couldn't generate Image Signing Key!"
+			echo "Converting PEMs to ESL format"
+			cd "$KEYS"
 			cert-to-efi-sig-list -g "$(uuidgen)" PK.pem PK.esl
 			cert-to-efi-sig-list -g "$(uuidgen)" KEK.pem KEK.esl
 			cert-to-efi-sig-list -g "$(uuidgen)" ISK.pem ISK.esl
@@ -175,9 +194,7 @@ if [ -z "$NO_SB" ]; then
 				curl -Lso UEFI.crt http://go.microsoft.com/fwlink/?LinkId=321194 || exit_on_error "Couldn't download Microsoft UEFI driver signing certificate!"
 				echo "Converting DERs to PEMs"
 				openssl x509 -in MsWin.crt -inform DER -out MsWin.pem -outform PEM
-				rm MsWin.crt
 				openssl x509 -in UEFI.crt -inform DER -out UEFI.pem -outform PEM
-				rm UEFI.crt
 				echo "Converting Microsoft's keys to ESL format"
 				cert-to-efi-sig-list -g "$(uuidgen)" MsWin.pem MsWin.esl
 				cert-to-efi-sig-list -g "$(uuidgen)" UEFI.pem UEFI.esl
@@ -185,7 +202,7 @@ if [ -z "$NO_SB" ]; then
 				cat ISK.esl MsWin.esl UEFI.esl > db.esl
 			fi
 
-			echo 'Signing keys (Enter your passphrase three times!)'
+			echo "Signing keys (Enter your passphrase three times!)"
 			sign-efi-sig-list -k PK.key -c PK.pem PK PK.esl PK.auth > /dev/null
 			sign-efi-sig-list -k PK.key -c PK.pem KEK KEK.esl KEK.auth > /dev/null
 			sign-efi-sig-list -k KEK.key -c KEK.pem db db.esl db.auth > /dev/null
@@ -202,27 +219,27 @@ if [ -z "$NO_SB" ]; then
 				./shim-to-cert.tool "$answer" || exit_on_error "Failed to extract certificates from Shim!"
 
 				# Remove the redirections to /dev/null to unsuppress debug output
-				echo 'Setting up build environment'
-				./shim-make.tool -r $OCUTILS/shim_root -s $OCUTILS/shim_source setup > /dev/null 2>&1 || exit_on_error "Failed to setup build environment!"
-				echo 'Building Shim'
-				./shim-make.tool -r $OCUTILS/shim_root -s $OCUTILS/shim_source make VENDOR_DB_FILE=$OCUTILS/ShimUtils/vendor.db > /dev/null 2>&1 || exit_on_error "Failed to build Shim! Did you install libelf development libraries?"
-				echo 'Installing Shim to OpenCore'
-				./shim-make.tool -r $OCUTILS/shim_root -s $OCUTILS/shim_source install "$OCPATH/../.." > /dev/null 2>&1 || exit_on_error "Failed to install Shim to OpenCore EFI!"
-				echo 'Adding changes to config.plist'
+				echo "Setting up build environment"
+				./shim-make.tool -r "$OCUTILS/shim_root" -s "$OCUTILS/shim_source" setup > /dev/null 2>&1 || exit_on_error "Failed to setup build environment!"
+				echo "Building Shim"
+				./shim-make.tool -r "$OCUTILS/shim_root" -s "$OCUTILS/shim_source" make VENDOR_DB_FILE="$OCUTILS/ShimUtils/vendor.db" > /dev/null 2>&1 || exit_on_error "Failed to build Shim! Did you install libelf development libraries?"
+				echo "Installing Shim to OpenCore"
+				./shim-make.tool -r "$OCUTILS/shim_root" -s "$OCUTILS/shim_source" install "$OCPATH/../.." > /dev/null 2>&1 || exit_on_error "Failed to install Shim to OpenCore EFI!"
+				echo "Adding changes to config.plist"
 				find_replace_config "ShimRetainProtocol" "<true/>"
 				find_replace_config "LauncherPath" '<string>\\EFI\\OC\\shimx64.efi</string>'
-				echo 'Adding empty SBAT section to config.plist'
+				echo "Adding empty SBAT section to config.plist"
 				wget -q https://raw.githubusercontent.com/chenxiaolong/random-scripts/e752bf07bcfb0aa19a9d7dafa139cca74ecca4b7/pe-add-sections.py || exit_on_error "Couldn't download pe-add-sections.py!"
 				chmod +x pe-add-sections.py
-				./pe-add-sections.py -s .sbat /dev/null -z .sbat -i $OCPATH/OpenCore.efi -o $OCPATH/OpenCore.efi || exit_on_error "Couldn't add empty SBAT section to OpenCore!"
+				./pe-add-sections.py -s .sbat /dev/null -z .sbat -i "$OCPATH/OpenCore.efi" -o "$OCPATH/OpenCore.efi" || exit_on_error "Couldn't add empty SBAT section to OpenCore!"
 			fi
 		fi
 
-		echo 'Signing OpenCore drivers...'
-		for driver in `find $OCPATH/Drivers/*`; do
+		echo "Signing OpenCore drivers..."
+		for driver in "$OCPATH/Drivers"/*; do
 			sign_file "$driver"
 		done
-		echo 'Signing Bootstrap...'
+		echo "Signing Bootstrap..."
 		sign_file "$OCPATH/../BOOT/BOOTx64.efi"
 
 		if [ "$USINGSHIM" = 1 ]; then
@@ -239,20 +256,20 @@ if [ -z "$NO_SB" ]; then
 				VAULTSB=1
 			else
 				VAULTSB=0
-				echo 'Signing OpenCore now, will not vault'
+				echo "Signing OpenCore now, will not vault"
 				sign_file "$OCPATH/OpenCore.efi"
 			fi
 		fi
 
-		cd $SCRIPTDIR
-		echo 'Please add PK.auth, KEK.auth, and db.auth to your firmware!'
+		cd "$SCRIPTDIR"
+		echo "Please add PK.auth, KEK.auth, and db.auth to your firmware!"
 	fi
 fi
 
 ask_question "Create persistent boot option for OpenCore? (Required if using Shim. Only recommended if permanently installing to EFI) (y/N) "
 
 if [ "$answer" != "${answer#[Yy]}" ]; then
-	echo 'Enabling LauncherOption in config.plist'
+	echo "Enabling LauncherOption in config.plist"
 	find_replace_config "LauncherOption" "<string>Full</string>"
 fi
 
@@ -262,17 +279,17 @@ if [ -z "$NO_VAULT" ]; then
 	fi
 
 	if [ "$answer" != "${answer#[Yy]}" ] || [ "$VAULTSB" = 1 ]; then
-		echo 'Requiring secure vault in config.plist'
+		echo "Requiring secure vault in config.plist"
 		find_replace_config "Vault" "<string>Secure</string>"
-		echo 'Downloading OpenCore Source...'
+		echo "Downloading OpenCore Source..."
 		download_unzip_to_dir "https://github.com/acidanthera/OpenCorePkg/archive/refs/tags/$OCVER.zip" "OpenCorePkg"
 		mv "$SCRIPTDIR/OpenCorePkg/OpenCorePkg-$OCVER"/* "$SCRIPTDIR/OpenCorePkg"
-		echo 'Compiling RsaTool...'
-		cd "$SCRIPTDIR/OpenCorePkg/Utilities/RsaTool" && make && cd $SCRIPTDIR
-		echo 'Copying RsaTool to OpenCore...'
+		echo "Compiling RsaTool..."
+		cd "$SCRIPTDIR/OpenCorePkg/Utilities/RsaTool" && make && cd "$SCRIPTDIR"
+		echo "Copying RsaTool to OpenCore..."
 		cp "$SCRIPTDIR/OpenCorePkg/Utilities/RsaTool/RsaTool" "$OCUTILS/CreateVault"
 		rm -rf OpenCorePkg
-		echo 'Vaulting OpenCore...'
+		echo "Vaulting OpenCore..."
 		"$OCUTILS/CreateVault/sign.command" "$OCPATH"
 
 		if [ "$VAULTSB" = 1 ]; then
@@ -289,6 +306,6 @@ elif [ ! -d "$answer" ]; then
 	exit_on_error "Directory does not exist!"
 fi
 
-cp -r $SCRIPTDIR/OpenCore/$ARCH/* $answer/ || exit_on_error "Failed to copy OpenCore to selected directory!"
+cp -r "$SCRIPTDIR/OpenCore/$ARCH"/* $answer/ || exit_on_error "Failed to copy OpenCore to selected directory!"
 
 echo 'Done!'
