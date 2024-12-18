@@ -133,6 +133,13 @@ if [ -z "$NO_PASSWORD" ]; then
 	fi
 fi
 
+ask_question "Don't show picker on every boot? (You can still show picker by holding the 0 key) (y/N) "
+
+if [ "$answer" != "${answer#[Yy]}" ]; then
+	echo "Disabling picker in config..."
+	find_replace_config "ShowPicker" "<false/>"
+fi
+
 if [ -z "$NO_SB" ]; then
 	ask_question "Set up UEFI Secure Boot? (y/N) "
 
