@@ -35,6 +35,9 @@ download_unzip_to_dir() {
 	unzip -qq "$SCRIPTDIR/$2.zip" -d "$SCRIPTDIR/$2" || exit_on_error "Failed to unzip $2"
 	rm "$SCRIPTDIR/$2.zip"
 }
+shim_make() {
+	"$OCUTILS/ShimUtils/shim-make.tool" -r "$OCUTILS/shim_root" -s "$OCUTILS/shim_source" $1 > /dev/null 2>&1 || exit_on_error "Failed to make Shim!"
+}
 
 if [ ! -x /usr/bin/xxd ] || [ ! -x /usr/bin/base64 ]; then
 	NO_PASSWORD=0
@@ -103,6 +106,13 @@ answer=$(echo "$answer" | awk '{print tolower($0)}')
 
 cp "$SCRIPTDIR/configs/config$BUILD.plist" "$OCPATH/config.plist"
 case "$answer" in
+	"btrfs")
+		echo "Getting filesystem driver"
+		rm "$OCPATH/Drivers/Ext4Dxe.efi"
+		cp "$SCRIPTDIR/OcBinaryData/Drivers/btrfs_x64.efi" "$OCPATH/Drivers/btrfs_x64.efi" || exit_on_error "Failed to get filesystem $answer driver!"
+		echo "Copying changes to config.plist"
+		find_replace "Ext4Dxe.efi" "btrfs_x64.efi" "$OCPATH/config.plist"
+		;;
 	"ext4")
 		;;
 	fat*)
@@ -113,7 +123,7 @@ case "$answer" in
 	*)
 		echo "Getting filesystem driver"
 		rm "$OCPATH/Drivers/Ext4Dxe.efi"
-		curl -Lso "$OCPATH/Drivers/${answer}_${ARCH}.efi" "https://github.com/pbatard/EfiFs/releases/latest/download/${answer}_${ARCH}.efi" || exit_on_error "Failed to get filesystem driver!"
+		curl -Lso "$OCPATH/Drivers/${answer}_${ARCH}.efi" "https://github.com/pbatard/EfiFs/releases/latest/download/${answer}_${ARCH}.efi" || exit_on_error "Failed to get filesystem $answer driver!"
 		echo "Copying changes to config.plist"
 		find_replace "Ext4Dxe.efi" "${answer}_${ARCH}.efi" "$OCPATH/config.plist"
 esac
@@ -227,11 +237,11 @@ if [ -z "$NO_SB" ]; then
 
 				# Remove the redirections to /dev/null to unsuppress debug output
 				echo "Setting up build environment"
-				./shim-make.tool -r "$OCUTILS/shim_root" -s "$OCUTILS/shim_source" setup > /dev/null 2>&1 || exit_on_error "Failed to setup build environment!"
+				shim_make "setup"
 				echo "Building Shim"
-				./shim-make.tool -r "$OCUTILS/shim_root" -s "$OCUTILS/shim_source" make VENDOR_DB_FILE="$OCUTILS/ShimUtils/vendor.db" > /dev/null 2>&1 || exit_on_error "Failed to build Shim! Did you install libelf development libraries?"
+				shim_make "make VENDOR_DB_FILE=\"$OCUTILS/ShimUtils/vendor.db\""
 				echo "Installing Shim to OpenCore"
-				./shim-make.tool -r "$OCUTILS/shim_root" -s "$OCUTILS/shim_source" install "$OCPATH/../.." > /dev/null 2>&1 || exit_on_error "Failed to install Shim to OpenCore EFI!"
+				shim_make "install $OCPATH/../.."
 				echo "Adding changes to config.plist"
 				find_replace_config "ShimRetainProtocol" "<true/>"
 				find_replace_config "LauncherPath" '<string>\\EFI\\OC\\shimx64.efi</string>'
@@ -297,7 +307,7 @@ if [ -z "$NO_VAULT" ]; then
 		cp "$SCRIPTDIR/OpenCorePkg/Utilities/RsaTool/RsaTool" "$OCUTILS/CreateVault"
 		rm -rf OpenCorePkg
 		echo "Vaulting OpenCore..."
-		"$OCUTILS/CreateVault/sign.command" "$OCPATH"
+		"$OCUTILS/CreateVault/sign.command" "$OCPATH" || exit_on_error "Failed to vault configuration!"
 
 		if [ "$VAULTSB" = 1 ]; then
 			sign_file "$OCPATH/OpenCore.efi"
@@ -307,12 +317,9 @@ fi
 
 ask_question "Where should OpenCore be installed? (example: /boot/efi, /efi, your USB drive, etc.) "
 
-if [ "$answer" = "" ]; then
-	exit_on_error "No directory specified!"
-elif [ ! -d "$answer" ]; then
-	exit_on_error "Directory does not exist!"
+if [ ! -w "$answer" ]; then
+	exit_on_error "No permission to write to $answer or does not exist!"
 fi
 
 cp -r "$SCRIPTDIR/OpenCore/$ARCH"/* $answer/ || exit_on_error "Failed to copy OpenCore to selected directory!"
-
 echo 'Done!'
