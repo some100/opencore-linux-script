@@ -31,7 +31,7 @@ ask_question() {
 	read answer
 }
 download_unzip_to_dir() {
-	curl -Lso "$SCRIPTDIR/$2.zip" "$1" || exit_on_error "Failed to download $2"
+	curl -Lfso "$SCRIPTDIR/$2.zip" "$1" || exit_on_error "Failed to download $2"
 	unzip -qq "$SCRIPTDIR/$2.zip" -d "$SCRIPTDIR/$2" || exit_on_error "Failed to unzip $2"
 	rm "$SCRIPTDIR/$2.zip"
 }
@@ -60,7 +60,9 @@ if [ ! -x /usr/bin/gcc ] || [ ! -x /usr/bin/make ] || [ ! -x /usr/bin/python3 ];
 fi
 
 OCVER=$(curl --silent -qI https://github.com/acidanthera/OpenCorePkg/releases/latest | awk -F '/' '/^location/ {print  substr($NF, 1, length($NF)-1)}');
-SCRIPTDIR="$(pwd -P)"
+SCRIPTDIR="$(mktemp -d || exit_on_error \"Couldn\'t make temporary directory\")"
+LOCALDIR="$(pwd -P)"
+trap "rm -rf $SCRIPTDIR" EXIT
 
 echo "Welcome!"
 echo "This script will create an EFI for OpenCore that can be used exclusively for Linux and Windows booting. It cannot be used for hackintoshing or booting macOS. For that purpose, the official install guide at https://dortania.github.io/OpenCore-Install-Guide/ should be used instead."
@@ -87,6 +89,7 @@ fi
 
 OCPATH="$SCRIPTDIR/OpenCore/$ARCH/EFI/OC"
 OCUTILS="$SCRIPTDIR/OpenCore/Utilities"
+OCBINDATA="$SCRIPTDIR/OcBinaryData/OcBinaryData-master"
 
 echo "Removing unneeded drivers..."
 find "$OCPATH"/Drivers/* ! -name 'OpenRuntime.efi' ! -name 'OpenLinuxBoot.efi' ! -name 'OpenCanopy.efi' ! -name 'Ext4Dxe.efi' -exec rm -f {} +
@@ -95,21 +98,21 @@ rm -f "$OCPATH"/Tools/*
 
 echo "Setting up a theme for OpenCanopy"
 
-if [ ! -d "$SCRIPTDIR/OcBinaryData/Resources/" ]; then
-	git submodule update --init
+if [ ! -d "$OCBINDATA" ]; then
+	download_unzip_to_dir "https://github.com/acidanthera/OcBinaryData/archive/refs/heads/master.zip" "OcBinaryData"
 fi
 
-cp -r "$SCRIPTDIR/OcBinaryData/Resources/" "$OCPATH/"
+cp -r "$OCBINDATA/Resources/" "$OCPATH/"
 
 ask_question "What filesystem is your /boot partition on? (ext4, btrfs, fat32, etc.): "
 answer=$(echo "$answer" | awk '{print tolower($0)}')
 
-cp "$SCRIPTDIR/configs/config$BUILD.plist" "$OCPATH/config.plist"
+curl -Lfso "$OCPATH/config.plist" "https://raw.githubusercontent.com/some100/opencore-linux-script/refs/heads/main/configs/config$BUILD.plist"
 case "$answer" in
 	"btrfs")
 		echo "Getting filesystem driver"
 		rm "$OCPATH/Drivers/Ext4Dxe.efi"
-		cp "$SCRIPTDIR/OcBinaryData/Drivers/btrfs_x64.efi" "$OCPATH/Drivers/btrfs_x64.efi" || exit_on_error "Failed to get filesystem $answer driver!"
+		cp "$OCBINDATA/Drivers/btrfs_x64.efi" "$OCPATH/Drivers/btrfs_x64.efi" || exit_on_error "Failed to get filesystem $answer driver!"
 		echo "Copying changes to config.plist"
 		find_replace "Ext4Dxe.efi" "btrfs_x64.efi" "$OCPATH/config.plist"
 		;;
@@ -123,7 +126,7 @@ case "$answer" in
 	*)
 		echo "Getting filesystem driver"
 		rm "$OCPATH/Drivers/Ext4Dxe.efi"
-		curl -Lso "$OCPATH/Drivers/${answer}_${ARCH}.efi" "https://github.com/pbatard/EfiFs/releases/latest/download/${answer}_${ARCH}.efi" || exit_on_error "Failed to get filesystem $answer driver!"
+		curl -Lfso "$OCPATH/Drivers/${answer}_${ARCH}.efi" "https://github.com/pbatard/EfiFs/releases/latest/download/${answer}_${ARCH}.efi" || exit_on_error "Failed to get filesystem $answer driver!"
 		echo "Copying changes to config.plist"
 		find_replace "Ext4Dxe.efi" "${answer}_${ARCH}.efi" "$OCPATH/config.plist"
 esac
@@ -154,7 +157,7 @@ if [ -z "$NO_SB" ]; then
 	ask_question "Set up UEFI Secure Boot? (y/N) "
 
 	if [ "$answer" != "${answer#[Yy]}" ]; then
-		KEYS="$SCRIPTDIR/Keys"
+		KEYS="$LOCALDIR/Keys"
 
 		if [ -d "$KEYS" ]; then
 			ask_question "Found existing keys! Do you want to delete them? (y/N) "
@@ -207,8 +210,8 @@ if [ -z "$NO_SB" ]; then
 				mv ISK.esl db.esl
 			else
 				echo "Downloading Microsoft's keys"
-				curl -Lso MsWin.crt http://go.microsoft.com/fwlink/?LinkID=321192 || exit_on_error "Couldn't download Windows certificate!"
-				curl -Lso UEFI.crt http://go.microsoft.com/fwlink/?LinkId=321194 || exit_on_error "Couldn't download Microsoft UEFI driver signing certificate!"
+				curl -Lfso MsWin.crt http://go.microsoft.com/fwlink/?LinkID=321192 || exit_on_error "Couldn't download Windows certificate!"
+				curl -Lfso UEFI.crt http://go.microsoft.com/fwlink/?LinkId=321194 || exit_on_error "Couldn't download Microsoft UEFI driver signing certificate!"
 				echo "Converting DERs to PEMs"
 				openssl x509 -in MsWin.crt -inform DER -out MsWin.pem -outform PEM
 				openssl x509 -in UEFI.crt -inform DER -out UEFI.pem -outform PEM
@@ -245,7 +248,7 @@ if [ -z "$NO_SB" ]; then
 				echo "Adding changes to config.plist"
 				find_replace_config "ShimRetainProtocol" "<true/>"
 				find_replace_config "LauncherPath" '<string>\\EFI\\OC\\shimx64.efi</string>'
-				echo "Adding empty SBAT section to config.plist"
+				echo "Adding empty SBAT section to OpenCore"
 				wget -q https://raw.githubusercontent.com/chenxiaolong/random-scripts/e752bf07bcfb0aa19a9d7dafa139cca74ecca4b7/pe-add-sections.py || exit_on_error "Couldn't download pe-add-sections.py!"
 				chmod +x pe-add-sections.py
 				./pe-add-sections.py -s .sbat /dev/null -z .sbat -i "$OCPATH/OpenCore.efi" -o "$OCPATH/OpenCore.efi" || exit_on_error "Couldn't add empty SBAT section to OpenCore!"
@@ -318,8 +321,9 @@ fi
 ask_question "Where should OpenCore be installed? (example: /boot/efi, /efi, your USB drive, etc.) "
 
 if [ ! -w "$answer" ]; then
-	exit_on_error "No permission to write to $answer or does not exist!"
+	exit_on_error "No permission to write to directory $answer or does not exist!"
 fi
 
 cp -r "$SCRIPTDIR/OpenCore/$ARCH"/* $answer/ || exit_on_error "Failed to copy OpenCore to selected directory!"
-echo 'Done!'
+echo "Done!"
+exit
